@@ -1,0 +1,98 @@
+package main
+
+import (
+    "encoding/json"
+    "fmt"
+    "log"
+    "net/http"
+    "net/url"
+    "os"
+    "time")
+
+
+type IPInfo struct {
+    IP       string `json:"ip"`
+    City     string `json:"city"`
+    Region   string `json:"region"`
+    Country  string `json:"country"`
+    Loc      string `json:"loc"`
+    Org      string `json:"org"`
+    Timezone string `json:"timezone"`
+    Readme   string `json:"readme"`
+}
+
+func main() {
+    // Déclarez et initialisez votre liste d'adresses IP ou d'hôtes Proxy.
+    proxyList := []string{
+        "http://10.0.0.1:3128",
+        // Ajoutez d'autres Proxys ici...
+    }
+    // Créez un fichier journal TXT s'il n'existe pas encore. S'il existe déjà, ajoutez un nouveau journal au fichier existant.
+    logFile, err := os.OpenFile("proxy_test_log.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer logFile.Close()
+
+    // Configurez le fichier créé pour qu'il contienne les sorties enregistrées par ce programme.
+    log.SetOutput(logFile)
+
+    // Boucle/itération sur la liste des serveurs Proxy pour les vérifications.
+    for _, proxy := range proxyList {
+        // Analyse de l'URL du Proxy.
+        proxyURL, err := url.Parse(proxy)
+        if err != nil {
+            log.Printf("Erreur lors de l'analyse de l'URL du Proxy %s : %vn", proxy, err)
+            continuer
+        }
+
+        // Créer un client HTTP avec les paramètres du Proxy.
+        myClient := &http.Client{
+            Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
+            Timeout:   10 * time.Second, // Définir un délai d'expiration pour la requête
+        }
+
+        // Récupérer les informations IP.
+        fetchIPInfo := func() (*IPInfo, error) {
+            start := time.Now()
+            resp, err := myClient.Get("https://ipinfo.io/json")
+            if err != nil {
+                // Renvoyer une erreur si une erreur survient lors de la tentative d'accès à la page.
+                return nil, err
+            }
+            defer resp.Body.Close()
+
+            // Lire la réponse JSON de la requête HTTP.
+            var ipInfo IPInfo
+            err = json.NewDecoder(resp.Body).Decode(&ipInfo)
+            if err != nil {
+                return nil, err
+            }
+
+            // Enregistrer le temps de réponse de la requête.
+            elapsed := time.Since(start)
+            ipInfo.Readme = fmt.Sprintf("%s - Temps de réponse : %s", ipInfo.Readme, elapsed)
+
+            // Renvoie les informations IP obtenues à partir d'une réponse réussie.
+            return &ipInfo, nil
+        }
+
+        // Tente de récupérer les informations IP.
+        ipInfo, err := fetchIPInfo()
+        if err != nil {
+            log.Printf("Erreur lors de la récupération des informations IP pour le Proxy %s : %vn", Proxy, err)
+
+            // Réessayer une fois.
+            time.Sleep(2 * time.Second) // Attendre avant de réessayer
+            ipInfo, err = fetchIPInfo()
+            if err != nil {
+                log.Printf("Nouvelle tentative échouée pour le Proxy %s : %vn", proxy, err)
+                continue // Passer au Proxy suivant.
+            }
+        }
+
+        // Enregistrer la connexion réussie et les détails.
+        log.Printf("Connexion réussie au Proxy %sn", proxy)
+        log.Printf("Informations IP : %+vn", *ipInfo)
+    }
+}
